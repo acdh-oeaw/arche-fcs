@@ -1,0 +1,22 @@
+{
+    "name": "acdh-oeaw/arche-fcs",
+    "description": "CLARIN Federated Content Search plugin for ARCHE",
+    "keywords": [],
+    "homepage": "https://github.com/acdh-oeaw/arche-fcs",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Mateusz Żółtak",
+            "email": "mzoltak@oeaw.ac.at"
+        }
+    ],
+    "require": {
+    },
+    "autoload": {
+        "psr-4": {
+            "acdhOeaw\\": "src/acdhOeaw"
+        }
+    },
+    "require-dev": {
+    }
+}
