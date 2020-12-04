@@ -29,6 +29,8 @@ namespace acdhOeaw\cql;
 /**
  * OASIS-CQL Parser
  * 
+ * Provides Level 1 variant 2.b) conformance.
+ * 
  * http://docs.oasis-open.org/search-ws/searchRetrieve/v1.0/os/part5-cql/searchRetrieve-v1.0-os-part5-cql.html
  *
  * @author zozlak

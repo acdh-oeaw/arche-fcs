@@ -1,0 +1,42 @@
+serverInfo:
+    transport: http
+    method: GET
+    host: 127.0.0.1
+    port: 80
+    database: ARCHE
+databaseInfo:
+    title:
+        en: database title
+    description:
+        en: database description
+    author: {}
+    contact: {}
+    extent: {}
+    history: {}
+    langUsage: {}
+    restrictions: {}
+    subjects: {}
+    links: {}
+    implementation: {}
+# schemaInfo for is fixed for the fcs so no need to describe it
+# indexInfo is not needed so far as we support only basic search
+configInfo:
+    default:
+        numberOfRecords: 100
+    setting: {}
+    supports: {}
+# let's assume there is a single resource for the whole endpoint
+# in the future we might represent ARCHE resources or maybe (top-level) collections as separate FCS resources
+# (especially FCS allows to organize them in a hierachical way)
+resource:
+    title:
+        en: ARCHE
+    description: {}
+    landingPageUri:
+    - https://arche.acdh.oeaw.ac.at
+    language:
+    - deu
+    - eng
+    # availableDataViews is added automatically
+    # availableLayers doesn't apply as only basic search is supported
+
