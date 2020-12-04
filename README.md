@@ -10,7 +10,7 @@ Supports the basic search profile with AND, OR and NOT operators.
   ```
   composer require acdh-oeaw/arche-fcs
   ln -s vendor/acdh-oeaw/arche-fcs/index.php index.php
-  cp vendor/acdh-oeaw/arche-fcs/config.yaml config.yaml
+  cp vendor/acdh-oeaw/arche-fcs/config-sample.yaml config.yaml
   ```
 * Adjust the `config.yaml` providing ARCHE database connection details and your FCS metadata details.
 

@@ -58,9 +58,9 @@ class SruParameters {
     public $facetCount;
     public $xFcsEndpointDescription;
 
-    public function __construct(array $src) {
+    public function __construct(array $src, string $defaultVersion) {
         $this->operation               = $src['operation'] ?? 'explain';
-        $this->version                 = $src['version'] ?? '1.2';
+        $this->version                 = $src['version'] ?? $defaultVersion;
         $this->fcsDescription          = ($src['x-fcs-endpoint-description'] ?? '') === 'true';
         $this->fcsContent              = explode(',', $src['x-fcs-context'] ?? '');
         $this->fcsDataViews            = explode(', ', $src['x-fcs-dataviews'] ?? '');

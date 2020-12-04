@@ -2,7 +2,7 @@
 
 // http://www.loc.gov/standards/sru/
 // https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf
-require_once __DIR__ . '/vendor/autoload.php';
+require_once 'vendor/autoload.php';
 
 use acdhOeaw\arche\fcs\Endpoint;
 

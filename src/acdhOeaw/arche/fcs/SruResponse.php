@@ -37,19 +37,25 @@ use DOMNode;
  */
 class SruResponse {
 
-    const NMSP_SRU         = 'http://www.loc.gov/zing/srw/';
-    const NMSP_ZEEREX      = 'http://explain.z3950.org/dtd/2.1/';
-    const NMSP_DIAGNOSTICS = 'http://www.loc.gov/zing/srw/diagnostic/';
+    const ZEEREX_NMSP      = 'http://explain.z3950.org/dtd/2.1/';
+    const DIAGNOSTICS_NMSP = 'http://www.loc.gov/zing/srw/diagnostic/';
     const RECORD_SCHEMA    = 'http://explain.z3950.org/dtd/2.1/';
+    const SRU_MAX_VERSION  = '2.0';
+    const SRU_NMSP_1       = 'http://www.loc.gov/zing/srw/';
+    const SRU_NMSP_2       = 'http://docs.oasis-open.org/ns/search-ws/sruResponse';
 
+    private $version;
+    private $nmsp;
     private $doc;
     private $root;
 
     public function __construct(string $responseType, string $version) {
-        $this->doc  = new DOMDocument('1.0', 'utf-8');
-        $this->root = $this->doc->createElementNS(self::NMSP_SRU, "sru:$responseType");
+        $this->version = (float) $version;
+        $this->nmsp    = $this->version >= 2 ? self::SRU_NMSP_2 : self::SRU_NMSP_1;
+        $this->doc     = new DOMDocument('1.0', 'utf-8');
+        $this->root    = $this->doc->createElementNS($this->nmsp, "sru:{$responseType}Response");
         $this->doc->appendChild($this->root);
-        $this->root->appendChild($this->doc->createElementNS(self::NMSP_SRU, 'sru:version', $version));
+        $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:version', sprintf('%.1f', $this->version)));
     }
 
     public function createElementNs(string $ns, string $el,
@@ -58,30 +64,36 @@ class SruResponse {
     }
 
     public function addDiagnostics(SruException $e): void {
-        $e->appendToXmlNode($this->root);
+        $d = $this->root->appendChild($this->createElementNs($this->nmsp, 'sru:diagnostics'));
+        $e->appendToXmlNode($d);
     }
 
-    public function addRecord(DOMNode $content, string $schema,
-                              ?DOMNode $extra = null, string $packing = 'XML',
+    public function addRecord(?DOMNode $content, string $schema,
                               ?string $id = null, ?int $position = null): void {
-        $rec = $this->doc->createElementNS(self::NMSP_SRU, 'sru:record');
-        $rec->appendChild($this->doc->createElementNS(self::NMSP_SRU, 'sru:recordPacking', $packing));
-        $rec->appendChild($this->doc->createElementNS(self::NMSP_SRU, 'sru:recordSchema', $schema));
+        $rec = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:record'));
+        if ($content === null) {
+            return;
+        }
+        $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordSchema', $schema));
+        if ($this->version >= 2) {
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordXMLEscaping', 'XML'));
+        } else {
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordPacking', 'XML'));
+        }
         if (!empty($id)) {
-            $rec->appendChild($this->doc->createElementNS(self::NMSP_SRU, 'sru:recordIdentifier', $id));
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordIdentifier', $id));
         }
         if ($position > 0) {
-            $rec->appendChild($this->doc->createElementNS(self::NMSP_SRU, 'sru:recordPosition', $position));
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordPosition', $position));
         }
-        $d = $this->doc->createElementNS(self::NMSP_SRU, 'sru:recordData');
+        $d = $this->doc->createElementNS($this->nmsp, 'sru:recordData');
         $d->appendChild($content);
         $rec->appendChild($d);
-        if ($extra !== null) {
-            $ex = $this->doc->createElementNS(self::NMSP_SRU, 'sru:extraRecordData');
-            $ex->appendChild($extra);
-            $rec->appendChild($ex);
-        }
-        $this->root->appendChild($rec);
+    }
+
+    public function addExtraResponseData(DOMNode $extra): void {
+        $ex = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:extraResponseData'));
+        $ex->appendChild($extra);
     }
 
     public function __toString(): string {

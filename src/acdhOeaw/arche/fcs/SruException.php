@@ -131,10 +131,10 @@ class SruException extends FcsException {
     ];
 
     public function appendToXmlNode(DOMNode $node): void {
-        $d = $node->ownerDocument->createElementNS(SruResponse::NMSP_DIAGNOSTICS, 'diag:diagnostics');
-        $uri = $node->ownerDocument->createElementNS(SruResponse::NMSP_DIAGNOSTICS, 'diag:uri', 'info:srw/diagnostic/1/' . $this->getCode());
-        $details = $node->ownerDocument->createElementNS(SruResponse::NMSP_DIAGNOSTICS, 'diag:details', $this->getMessage());
-        $message = $node->ownerDocument->createElementNS(SruResponse::NMSP_DIAGNOSTICS, 'diag:message', self::$exceptions[$this->getCode()]);
+        $d = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:diagnostic');
+        $uri = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:uri', 'info:srw/diagnostic/1/' . $this->getCode());
+        $details = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:details', $this->getMessage());
+        $message = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:message', self::$exceptions[$this->getCode()]);
         $d->appendChild($uri);
         $d->appendChild($details);
         $d->appendChild($message);

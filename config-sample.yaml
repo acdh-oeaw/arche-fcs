@@ -1,6 +1,6 @@
+defaultVersion: 2.0
 serverInfo:
     transport: http
-    method: GET
     host: 127.0.0.1
     port: 80
     database: ARCHE
@@ -39,4 +39,4 @@ resource:
     - eng
     # availableDataViews is added automatically
     # availableLayers doesn't apply as only basic search is supported
-
+    pid: https://fake.pid
