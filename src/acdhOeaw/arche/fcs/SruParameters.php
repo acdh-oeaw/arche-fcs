@@ -36,10 +36,6 @@ class SruParameters {
     public $operation;
     public $version;
     public $query;
-    public $fcsDescription;
-    public $fcsContent;
-    public $fcsDataViews;
-    public $fcsAllowRewrite;
     public $startRecord;
     public $maximumRecords;
     public $recordXmlEscaping;
@@ -56,15 +52,14 @@ class SruParameters {
     public $facetStart;
     public $facetLimit;
     public $facetCount;
+    public $xFcsAllowRewrite;
     public $xFcsEndpointDescription;
+    public $xFcsContext;
+    public $xFcsDataViews;
 
     public function __construct(array $src, string $defaultVersion) {
         $this->operation               = $src['operation'] ?? 'explain';
         $this->version                 = $src['version'] ?? $defaultVersion;
-        $this->fcsDescription          = ($src['x-fcs-endpoint-description'] ?? '') === 'true';
-        $this->fcsContent              = explode(',', $src['x-fcs-context'] ?? '');
-        $this->fcsDataViews            = explode(', ', $src['x-fcs-dataviews'] ?? '');
-        $this->fcsAllowRewrite         = ($src['x-fcs-rewrites-allowed'] ?? '') === 'true';
         $this->query                   = $src['query'] ?? null;
         $this->startRecord             = $src['startRecord'] ?? 1; // startPosition
         $this->maximumRecords          = $src['maximumRecords'] ?? null; // maximumItems
@@ -83,8 +78,11 @@ class SruParameters {
         $this->facetStart              = $src['facetStart'] ?? null;
         $this->facetLimit              = $src['facetLimit'] ?? null;
         $this->facetCount              = $src['facetCount'] ?? null;
-        // FCS
+        // FCS extensions
+        $this->xFcsAllowRewrite        = ($src['x-fcs-rewrites-allowed'] ?? '') === 'true';
         $this->xFcsEndpointDescription = $src['x-fcs-endpoint-description'] ?? false;
+        $this->xFcsContext             = explode(',', $src['x-fcs-context'] ?? ''); // SRU error 1 if not exists
+        $this->xFcsDataviews           = explode(',', $src['x-fcs-dataviews'] ?? ''); // SRU error 4 if not exists
     }
 
 }

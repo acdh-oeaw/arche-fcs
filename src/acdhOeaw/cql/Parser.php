@@ -74,7 +74,6 @@ class Parser {
         } catch (ParserException $e) {
             $this->queryTree = $this->parseLogical($tokens);
         }
-        echo (string) $this->queryTree . "\n";
     }
 
     /**
@@ -124,13 +123,23 @@ class Parser {
                 throw new ParserException("Unsupported query");
             }
         }
-        $prevTerm = new Term($tokens[0]->getValue());
-        array_shift($tokens);
+        $term = $firstTerm = new Term();
+        $term->pushTerm(array_shift($tokens)->getValue());
         foreach ($tokens as $i) {
-            $term     = new Term($prevTerm, 'and', $i->getValue());
-            $prevTerm = $term;
+            $term->setOperator('and');
+            $newTerm = $term->pushTerm(new Term());
+            $newTerm->pushTerm($i->getValue());
+            $term = $newTerm;
         }
-        return $prevTerm;
+        return $firstTerm;
+    }
+
+    public function asTsquery(): string {
+        return $this->queryTree->asTsquery();
+    }
+
+    public function __toString(): string {
+        return (string) $this->queryTree;
     }
 
 }

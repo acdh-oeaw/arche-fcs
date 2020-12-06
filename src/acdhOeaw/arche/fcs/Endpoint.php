@@ -26,6 +26,11 @@
 
 namespace acdhOeaw\arche\fcs;
 
+use DOMDocument;
+use DOMNode;
+use PDO;
+use acdhOeaw\cql\Parser;
+
 /**
  * Description of Endpoint
  *
@@ -33,15 +38,30 @@ namespace acdhOeaw\arche\fcs;
  */
 class Endpoint {
 
-    const NMSP_FCS_ENDPOINT_DESC = 'http://clarin.eu/fcs/endpoint-description';
-    const CPBLT_BASIC_SEARCH     = 'http://clarin.eu/fcs/capability/basic-search';
-    const MIME_FCS_HITS          = 'application/x-clarin-fcs-hits+xml';
+    const NMSP_FCS_ENDPOINT_DESC   = 'http://clarin.eu/fcs/endpoint-description';
+    const NMSP_FCS_RESOURCE        = 'http://clarin.eu/fcs/resource';
+    const NMSP_FCS_HITS            = 'http://clarin.eu/fcs/dataview/hits';
+    const CPBLT_BASIC_SEARCH       = 'http://clarin.eu/fcs/capability/basic-search';
+    const MIME_FCS_HITS            = 'application/x-clarin-fcs-hits+xml';
+    const MIME_CMDI                = 'application/x-cmdi+xml';
+    const ID_DATA_VIEW_HITS        = 'hits';
+    const ID_DATA_VIEW_CMDI        = 'cmdi';
+    const POLICY_DATA_VIEW_DEFAULT = 'send-by-default';
+    const POLICY_DATA_VIEW_REQUEST = 'need-to-request';
+    const FTS_PROPERTY_BINARY      = 'BINARY';
+    const FRAGMENT_DELIMITER       = '@~$`';
 
     /**
      *
      * @var object
      */
     private $cfg;
+
+    /**
+     *
+     * @var DOMNode[]
+     */
+    private $cmdiCache = [];
 
     public function __construct(object $cfg) {
         $this->cfg = $cfg;
@@ -131,7 +151,7 @@ class Endpoint {
                 $el->setAttribute('type', $property);
             }
         }
-        
+
         $resp->addRecord($explain, SruResponse::RECORD_SCHEMA);
 
         if ($param->xFcsEndpointDescription === 'true') {
@@ -141,30 +161,15 @@ class Endpoint {
             $cpbs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Capability', self::CPBLT_BASIC_SEARCH));
             $sdvs = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:SupportedDataViews'));
             $sdv  = $sdvs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:SupportedDataView', self::MIME_FCS_HITS));
-            $sdv->setAttribute('id', 'hits');
-            $sdv->setAttribute('delivery-policy', 'send-by-default');
+            $sdv->setAttribute('id', self::ID_DATA_VIEW_HITS);
+            $sdv->setAttribute('delivery-policy', self::POLICY_DATA_VIEW_DEFAULT);
+            $sdv  = $sdvs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:SupportedDataView', self::MIME_CMDI));
+            $sdv->setAttribute('id', self::ID_DATA_VIEW_CMDI);
+            $sdv->setAttribute('delivery-policy', self::POLICY_DATA_VIEW_REQUEST);
             // nothing to do as Layers as only basic search is supported
             //$sls  = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:SupportedLayers'));
             $rss  = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Resources'));
-            $rs   = $rss->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Resource'));
-            $rs->setAttribute('pid', $this->cfg->resource->pid);
-            foreach ($this->cfg->resource->title as $lang => $title) {
-                $el = $rs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title));
-                $el->setAttribute('xml:lang', $lang);
-            }
-            foreach ($this->cfg->resource->title as $lang => $desc) {
-                $el = $rs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Description', $desc));
-                $el->setAttribute('xml:lang', $lang);
-            }
-            foreach ($this->cfg->resource->landingPageUri as $uri) {
-                $el = $rs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:LandingPageURI', $uri));
-            }
-            $ls = $rs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Languages'));
-            foreach ($this->cfg->resource->language as $lang) {
-                $ls->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Language', $lang));
-            }
-            $adv = $rs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:AvailableDataViews'));
-            $adv->setAttribute('ref', 'hits');
+            $this->explainDescribeResources($rss, $resp);
             $resp->addExtraResponseData($ed);
         }
 
@@ -174,6 +179,69 @@ class Endpoint {
     private function handleSearch(SruParameters $param): SruResponse {
         $this->checkParam($param, 'search');
         $resp = new SruResponse('searchRetrieve', $param->version);
+
+        $pdo   = $this->getDbHandle();
+        $query = $this->cfg->resourceQuery->query;
+        $query = "
+            CREATE TEMPORARY TABLE validres AS (
+                SELECT id, pid, cmdipid FROM ($query) t
+            )
+        ";
+        $query = $pdo->prepare($query);
+        $query->execute($this->cfg->resourceQuery->parameters);
+        $this->processFcsContext($param, $pdo);
+
+        $cqlParser  = new Parser($param->query);
+        $tsquery   = $cqlParser->asTsquery();
+        $hglghOpts  = sprintf(
+            'MaxWords=%d,MinWords=%d,ShortWord=%d,MaxFragments=%d,FragmentDelimiter=%s',
+            $this->cfg->highlighting->maxWords,
+            $this->cfg->highlighting->minWords,
+            $this->cfg->highlighting->shortWord,
+            $this->cfg->highlighting->maxFragments,
+            self::FRAGMENT_DELIMITER
+        );
+        $query      = "
+            SELECT 
+                id, pid, cmdipid, 
+                ts_headline('simple', raw, to_tsquery('simple', ?), ?) AS hits
+            FROM
+                validres
+                JOIN full_text_search fts USING (id)
+            WHERE
+                property = ?
+                AND to_tsquery('simple', ?) @@ segments
+        ";
+        $queryParam = [$tsquery, $hglghOpts, self::FTS_PROPERTY_BINARY, $tsquery];
+        $query      = $pdo->prepare($query);
+        $query->execute($queryParam);
+        while ($res        = $query->fetchObject()) {
+            $xmlRes          = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
+            $xmlRes->setAttribute('pid', $res->pid);
+            
+            $hits = explode(self::FRAGMENT_DELIMITER, $res->hits);
+            foreach ($hits as $hit) {
+                $xmlResFrag      = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:ResourceFragment'));
+                $xmlHitDataView = $xmlResFrag->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
+                $xmlHitDataView->setAttribute('type', self::MIME_FCS_HITS);
+                $xmlHit = $xmlHitDataView->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Result'));
+                $offset = 0;
+                while ($p1     = strpos($hit, '<b>', $offset)) {
+                    $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset, $p1)));
+                    $p2     = strpos($hit, '</b>', $offset + 3);
+                    $xmlHit->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:hit', substr($hit, $p1 + 3, $p2 - $p1 - 3)));
+                    $offset = $p2 + 4;
+                }
+                $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset)));
+            }
+
+            foreach ($param->xFcsDataviews as $dv) {
+                $this->processHitDataView($dv, $res, $xmlRes);
+            }
+
+            $resp->addRecord($xmlRes, self::NMSP_FCS_RESOURCE);
+        }
+ 
         return $resp;
     }
 
@@ -186,30 +254,97 @@ class Endpoint {
         return $resp;
     }
 
+    private function explainDescribeResources(DOMNode $container,
+                                              SruResponse $resp): void {
+        $pdo   = $this->getDbHandle();
+        $query = $pdo->prepare($this->cfg->resourceQuery->query);
+        $query->execute($this->cfg->resourceQuery->parameters);
+        while ($res   = $query->fetchObject()) {
+            $xmlRes = $container->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Resource'));
+            $xmlRes->setAttribute('pid', $res->pid);
+            foreach (json_decode($res->title) as $title) {
+                $xmlEl = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title->value));
+                $xmlEl->setAttribute('xml:lang', $title->lang);
+            }
+            $xmlLangs = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Languages'));
+            foreach (json_decode($res->language) as $lang) {
+                $xmlLangs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Language', $lang));
+            }
+            $xmlDataViews = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:AvailableDataViews'));
+            $xmlDataViews->setAttribute('ref', self::ID_DATA_VIEW_HITS . ' ' . self::ID_DATA_VIEW_CMDI);
+        }
+    }
+
     private function checkParam(SruParameters $param, string $operation): void {
         if (!in_array((float) $param->version, [1.1, 1.2, 2.0])) {
             throw new SruException(SruResponse::SRU_MAX_VERSION, 5);
         }
-        if ($operation === 'search' && $param->$param === null) {
-            throw new SruException('query', 7);
+        if ($param->renderedBy !== 'client') {
+            throw new SruException('RenderedBy', 6);
         }
         if ($param->recordXMLEscaping !== 'XML') {
-            //            throw new SruException('', 71);
-        }
-        if ($param->queryType !== 'cql' && $queryType !== 'searchTerms') {
-            //            throw new SruException('queryType', 6);
+            throw new SruException('', 71);
         }
         if (!empty($param->sortKeys)) {
             throw new SruException('', 80);
         }
-        if ($param->renderedBy !== 'client') {
-            throw new SruException('RenderedBy', 6);
-        }
         if ($param->httpAccept !== 'application/sru+xml') {
-            // it makes no sense to check it as it will e.g. make it unable to test the endpoint in a browser
-            // as browsers set Accept text/html
+            // it makes no sense to check it as it will e.g. 
+            // make it unable to test the endpoint in a browser as browsers set Accept text/html
             //throw new FcsException('Not Acceptable', 406);
         }
+        if ($operation === 'search') {
+            if ($param->query === null) {
+                throw new SruException('query', 7);
+            }
+            if ($param->queryType !== 'cql' && $this->queryType !== 'searchTerms') {
+                throw new SruException('queryType', 6);
+            }
+            foreach ($param->xFcsDataviews as $i) {
+                if ($i !== self::ID_DATA_VIEW_CMDI && !(empty(trim($i) || count($param->xFcsDataviews) > 1))) {
+                    throw new SruException('', 4);
+                }
+            }
+        }
+    }
+
+    private function processFcsContext(SruParameters $param, PDO $pdo) {
+        if (count($param->xFcsContext) > 1 || !empty($param->xFcsContext[0])) {
+            $query = sprintf("DELETE FROM validres WHERE pid NOT IN (%s)", substr(str_repeat('?, ', count($param->xFcsContext)), 0, -2));
+            $query = $pdo->prepare($query);
+            $query->execute($param->xFcsContext);
+            if ($pdo->query("SELECT count(*) FROM validres")->fetchColumn() !== count($param->xFcsContext)) {
+                throw new SruException('Nonexistent resources requested with x-fcs-context', 1);
+            }
+        }
+    }
+
+    private function processHitDataView(string $dataView, object $res,
+                                        DOMNode $xmlParent): void {
+        switch ($dataView) {
+            case 'cmdi':
+                $dataView = $xmlParent->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
+                $dataView->setAttribute('type', self::MIME_CMDI);
+                $dataView->setAttribute('pid', $res->cmdipid);
+                $cmdiUrl  = sprintf($this->cfg->cmdiUrl, $res->pid);
+                if (!isset($this->cmdiCache[$cmdiUrl])) {
+                    $cmdi                      = new DOMDocument();
+                    $cmdi->loadXML(file_get_contents());
+                    $cmdi                      = $dataView->ownerDocument->importNode($cmdi->documentElement, true);
+                    $this->cmdiCache[$cmdiUrl] = $cmdi;
+                } else {
+                    $cmdi = $this->cmdiCache[$cmdiUrl]->cloneNode(true);
+                }
+                $dataView->appendChild($cmdi);
+                break;
+        }
+    }
+
+    private function getDbHandle(): PDO {
+        $pdo = new PDO('pgsql: ' . $this->cfg->dbConnStr);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->beginTransaction();
+        return $pdo;
     }
 
 }

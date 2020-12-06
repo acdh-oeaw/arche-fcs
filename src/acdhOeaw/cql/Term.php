@@ -33,6 +33,12 @@ namespace acdhOeaw\cql;
  */
 class Term {
 
+    static private $operatorMap = [
+        'and' => '&',
+        'or'  => '|',
+        'not' => '&!'
+    ];
+
     /**
      *
      * @var Term
@@ -73,6 +79,19 @@ class Term {
         $this->operator = strtolower($operator);
     }
 
+    public function asTsquery(): string {
+        if (empty($this->termLeft)) {
+            return '';
+        } elseif (empty($this->operator)) {
+            return $this->singleTermAsTsquery($this->termLeft);
+        } else {
+            $r = $this->singleTermAsTsquery($this->termRight);
+            $o = self::$operatorMap[$this->operator];
+            $l = $this->singleTermAsTsquery($this->termLeft);
+            return "$r$o$l";
+        }
+    }
+
     public function __toString(): string {
         if (empty($this->termLeft)) {
             return '_';
@@ -80,6 +99,15 @@ class Term {
             return (string) $this->termLeft;
         } else {
             return '(' . (string) $this->termRight . ' ' . $this->operator . ' ' . (string) $this->termLeft . ')';
+        }
+    }
+
+    private function singleTermAsTsquery($term): string {
+        if (is_object($term)) {
+            return $term->asTsquery();
+        } else {
+            $words = preg_split('/\s/', $term);
+            return count($words) === 1 ? $words[0] : '(' . implode('<->', $words) . ')';
         }
     }
 
