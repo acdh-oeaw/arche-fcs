@@ -178,6 +178,7 @@ class Endpoint {
     }
 
     private function handleSearch(SruParameters $param): SruResponse {
+        $param->maximumRecords ??= $this->cfg->configInfo->default->maximumRecords;
         $this->checkParam($param, 'search');
         $param->maximumRecords = (int) $param->maximumRecords;
         $param->startRecord    = (int) $param->startRecord;
@@ -218,12 +219,20 @@ class Endpoint {
             WHERE
                 property = ?
                 AND to_tsquery('simple', ?) @@ segments
+            ORDER BY id
+            LIMIT ?
+            OFFSET ?
         ";
-        $queryParam = [$tsquery, $hglghOpts, self::FTS_PROPERTY_BINARY, $tsquery];
+        $queryParam = [
+            $tsquery, $hglghOpts, 
+            self::FTS_PROPERTY_BINARY, $tsquery,
+            $param->maximumRecords + 1, $param->startRecord - 1
+        ];
         $query      = $pdo->prepare($query);
         $query->execute($queryParam);
-        $n          = 0;
-        while (($res        = $query->fetchObject()) && $n < $param->maximumRecords) {
+        $n = $param->maximumRecords;
+        while ($n > 0 && ($res        = $query->fetchObject())) {
+            $n--;
             $xmlRes = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
             $xmlRes->setAttribute('pid', $res->pid);
 
@@ -242,7 +251,6 @@ class Endpoint {
                 }
                 $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset)));
 
-                $n++;
                 if ($n >= $param->maximumRecords) {
                     break;
                 }
@@ -253,6 +261,9 @@ class Endpoint {
             }
 
             $resp->addRecord($xmlRes, self::NMSP_FCS_RESOURCE);
+        }
+        if ($query->fetchObject() !== false) {
+            $resp->addNextRecordPosition($param->startRecord + $param->maximumRecords);
         }
 
         return $resp;
@@ -317,14 +328,14 @@ class Endpoint {
             if ((string) $param->resultSetTTL !== '') {
                 throw new SruException('resultSetTTL', 8);
             }
-             
+
             if (!empty($param->recordSchema) && $param->recordSchema !== self::NMSP_FCS_RESOURCE) {
                 throw new SruException($param->recordSchema, 66);
             }
             if (!empty($param->recordPacking)) {
                 if ($param->version >= 2 && $param->recordPacking !== 'packed') {
                     throw new SruException('recordPacking', 6);
-                }else if ($param->version < 2 && $param->recordPacking !== 'xml') {
+                } else if ($param->version < 2 && $param->recordPacking !== 'xml') {
                     throw new SruException('', 71);
                 }
             }

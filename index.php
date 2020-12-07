@@ -1,7 +1,8 @@
 <?php
 
-// http://www.loc.gov/standards/sru/
 // https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf
+// http://www.loc.gov/standards/sru/
+// http://www.loc.gov/standards/sru/differences.html
 require_once 'vendor/autoload.php';
 
 use acdhOeaw\arche\fcs\Endpoint;

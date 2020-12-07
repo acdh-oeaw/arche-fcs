@@ -107,6 +107,10 @@ class SruResponse {
         $this->numberOfRecords++;
     }
 
+    public function addNextRecordPosition(int $position): void {
+        $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:nextRecordPosition', $position));
+    }
+    
     public function addExtraResponseData(DOMNode $extra): void {
         $ex = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:extraResponseData'));
         $ex->appendChild($extra);
