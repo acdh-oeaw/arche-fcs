@@ -56,24 +56,32 @@ class SruParameters {
     public $xFcsEndpointDescription;
     public $xFcsContext;
     public $xFcsDataViews;
+    public $scanClause;
+    public $responsePosition;
+    public $maximumTerms;
 
     public function __construct(array $src, string $defaultVersion) {
-        $this->operation               = $src['operation'] ?? 'explain';
-        $this->version                 = $src['version'] ?? $defaultVersion;
         $this->query                   = $src['query'] ?? null;
-        $this->startRecord             = $src['startRecord'] ?? 1; // startPosition
-        $this->maximumRecords          = $src['maximumRecords'] ?? null; // maximumItems
-        $this->recordXMLEscaping       = $src['recordXMLEscaping'] ?? 'XML';
+        $this->operation               = $src['operation'] ?? '';
+        $this->version                 = $src['version'] ?? $defaultVersion;
+        $this->recordXMLEscaping       = $src['recordXMLEscaping'] ?? 'xml';
         $this->recordSchema            = $src['recordSchema'] ?? null; // responseItemType
         $this->resultSetTTL            = $src['resultSetTTL'] ?? null;
         $this->stylesheet              = $src['Stylesheet'] ?? null;
+        $this->recordPacking           = $src['recordPacking'] ?? ($this->version >= 2 ? 'packed' : 'xml');
+        // searchRetrieve-specific
+        $this->startRecord             = $src['startRecord'] ?? '1'; // startPosition
+        $this->maximumRecords          = $src['maximumRecords'] ?? null; // maximumItems
+        // scan-specific
+        $this->scanClause              = $src['scanClause'] ?? null;
+        $this->responsePosition        = $src['responsePosition'] ?? null;
+        $this->maximumTerms            = $src['maximumTerms'] ?? null;
         // SRU 2.0
         $this->queryType               = $src['queryType'] ?? 'cql';
         $this->sortKeys                = $src['sortKeys'] ?? null; // sortOrder
         $this->renderedBy              = $src['RenderedBy'] ?? 'client';
         $this->httpAccept              = $src['httpAccept'] ?? ($_SERVER['HTTP_ACCEPT'] ?? 'application/sru+xml'); // responseFormat
         $this->responseType            = $src['responseType'] ?? null;
-        $this->recordPacking           = $src['recordPacking'] ?? 'packed';
         $this->facetSort               = $src['facetSort'] ?? null;
         $this->facetStart              = $src['facetStart'] ?? null;
         $this->facetLimit              = $src['facetLimit'] ?? null;
@@ -83,6 +91,16 @@ class SruParameters {
         $this->xFcsEndpointDescription = $src['x-fcs-endpoint-description'] ?? false;
         $this->xFcsContext             = explode(',', $src['x-fcs-context'] ?? ''); // SRU error 1 if not exists
         $this->xFcsDataviews           = explode(',', $src['x-fcs-dataviews'] ?? ''); // SRU error 4 if not exists
+        // default operation handling
+        if ($this->operation === '') {
+            if (!empty($this->query)) {
+                $this->operation = 'searchRetrieve';
+            } elseif (!empty($this->scanClause)) {
+                $this->operation = 'scan';
+            } else {
+                $this->operation = 'explain';
+            }
+        }
     }
 
 }

@@ -30,6 +30,7 @@ use DOMDocument;
 use DOMNode;
 use PDO;
 use acdhOeaw\cql\Parser;
+use acdhOeaw\cql\ParserException;
 
 /**
  * Description of Endpoint
@@ -68,7 +69,7 @@ class Endpoint {
     }
 
     public function handleRequest(): void {
-        $resp = new SruResponse('explain', '1.2');
+        $resp = new SruResponse('explain', $this->cfg->defaultVersion ?? SruResponse::SRU_MAX_VERSION);
         try {
             switch ($_SERVER['REQUEST_METHOD'] ?? '') {
                 case 'GET':
@@ -85,6 +86,7 @@ class Endpoint {
                     return;
             }
             $param = new SruParameters($src, $this->cfg->defaultVersion ?? SruResponse::SRU_MAX_VERSION);
+            $resp  = new SruResponse($param->operation, $this->cfg->defaultVersion ?? SruResponse::SRU_MAX_VERSION);
 
             switch ($param->operation) {
                 case 'explain':
@@ -104,7 +106,6 @@ class Endpoint {
             header('Content-Type: application/xml');
             echo (string) $resp;
         } catch (SruException $e) {
-            $resp->addRecord(null, '');
             $resp->addDiagnostics($e);
             header('Content-Type: application/xml');
             echo (string) $resp;
@@ -156,7 +157,7 @@ class Endpoint {
 
         if ($param->xFcsEndpointDescription === 'true') {
             $ed   = $resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:EndpointDescription');
-            $ed->setAttribute('version', '2');
+            $ed->setAttribute('version', $param->version >= 2 ? '2' : '1');
             $cpbs = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Capabilities'));
             $cpbs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Capability', self::CPBLT_BASIC_SEARCH));
             $sdvs = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:SupportedDataViews'));
@@ -178,7 +179,9 @@ class Endpoint {
 
     private function handleSearch(SruParameters $param): SruResponse {
         $this->checkParam($param, 'search');
-        $resp = new SruResponse('searchRetrieve', $param->version);
+        $param->maximumRecords = (int) $param->maximumRecords;
+        $param->startRecord    = (int) $param->startRecord;
+        $resp                  = new SruResponse('searchRetrieve', $param->version);
 
         $pdo   = $this->getDbHandle();
         $query = $this->cfg->resourceQuery->query;
@@ -191,8 +194,12 @@ class Endpoint {
         $query->execute($this->cfg->resourceQuery->parameters);
         $this->processFcsContext($param, $pdo);
 
-        $cqlParser  = new Parser($param->query);
-        $tsquery   = $cqlParser->asTsquery();
+        try {
+            $cqlParser = new Parser($param->query);
+        } catch (ParserException $e) {
+            throw new SruException('', 10);
+        }
+        $tsquery    = $cqlParser->asTsquery();
         $hglghOpts  = sprintf(
             'MaxWords=%d,MinWords=%d,ShortWord=%d,MaxFragments=%d,FragmentDelimiter=%s',
             $this->cfg->highlighting->maxWords,
@@ -215,24 +222,30 @@ class Endpoint {
         $queryParam = [$tsquery, $hglghOpts, self::FTS_PROPERTY_BINARY, $tsquery];
         $query      = $pdo->prepare($query);
         $query->execute($queryParam);
-        while ($res        = $query->fetchObject()) {
-            $xmlRes          = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
+        $n          = 0;
+        while (($res        = $query->fetchObject()) && $n < $param->maximumRecords) {
+            $xmlRes = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
             $xmlRes->setAttribute('pid', $res->pid);
-            
+
             $hits = explode(self::FRAGMENT_DELIMITER, $res->hits);
             foreach ($hits as $hit) {
-                $xmlResFrag      = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:ResourceFragment'));
+                $xmlResFrag     = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:ResourceFragment'));
                 $xmlHitDataView = $xmlResFrag->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
                 $xmlHitDataView->setAttribute('type', self::MIME_FCS_HITS);
-                $xmlHit = $xmlHitDataView->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Result'));
-                $offset = 0;
-                while ($p1     = strpos($hit, '<b>', $offset)) {
+                $xmlHit         = $xmlHitDataView->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Result'));
+                $offset         = 0;
+                while ($p1             = strpos($hit, '<b>', $offset)) {
                     $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset, $p1)));
                     $p2     = strpos($hit, '</b>', $offset + 3);
                     $xmlHit->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:hit', substr($hit, $p1 + 3, $p2 - $p1 - 3)));
                     $offset = $p2 + 4;
                 }
                 $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset)));
+
+                $n++;
+                if ($n >= $param->maximumRecords) {
+                    break;
+                }
             }
 
             foreach ($param->xFcsDataviews as $dv) {
@@ -241,7 +254,7 @@ class Endpoint {
 
             $resp->addRecord($xmlRes, self::NMSP_FCS_RESOURCE);
         }
- 
+
         return $resp;
     }
 
@@ -250,8 +263,6 @@ class Endpoint {
         $resp = new SruResponse('scan', $param->version);
 
         throw new SruException('', 4);
-
-        return $resp;
     }
 
     private function explainDescribeResources(DOMNode $container,
@@ -280,13 +291,10 @@ class Endpoint {
             throw new SruException(SruResponse::SRU_MAX_VERSION, 5);
         }
         if ($param->renderedBy !== 'client') {
-            throw new SruException('RenderedBy', 6);
+            throw new SruException('renderedBy', 6);
         }
-        if ($param->recordXMLEscaping !== 'XML') {
+        if ($param->recordXMLEscaping !== 'xml') {
             throw new SruException('', 71);
-        }
-        if (!empty($param->sortKeys)) {
-            throw new SruException('', 80);
         }
         if ($param->httpAccept !== 'application/sru+xml') {
             // it makes no sense to check it as it will e.g. 
@@ -294,16 +302,46 @@ class Endpoint {
             //throw new FcsException('Not Acceptable', 406);
         }
         if ($operation === 'search') {
-            if ($param->query === null) {
+            if (empty($param->query)) {
                 throw new SruException('query', 7);
             }
             if ($param->queryType !== 'cql' && $this->queryType !== 'searchTerms') {
                 throw new SruException('queryType', 6);
             }
+            if ($param->startRecord !== '' && !preg_match('/^[1-9][0-9]*$/', $param->startRecord)) {
+                throw new SruException('startRecord', 6);
+            }
+            if ((string) $param->maximumRecords !== '' && !preg_match('/^[1-9][0-9]*$/', $param->maximumRecords)) {
+                throw new SruException('maximumRecords', 6);
+            }
+            if ((string) $param->resultSetTTL !== '') {
+                throw new SruException('resultSetTTL', 8);
+            }
+             
+            if (!empty($param->recordSchema) && $param->recordSchema !== self::NMSP_FCS_RESOURCE) {
+                throw new SruException($param->recordSchema, 66);
+            }
+            if (!empty($param->recordPacking)) {
+                if ($param->version >= 2 && $param->recordPacking !== 'packed') {
+                    throw new SruException('recordPacking', 6);
+                }else if ($param->version < 2 && $param->recordPacking !== 'xml') {
+                    throw new SruException('', 71);
+                }
+            }
             foreach ($param->xFcsDataviews as $i) {
                 if ($i !== self::ID_DATA_VIEW_CMDI && !(empty(trim($i) || count($param->xFcsDataviews) > 1))) {
                     throw new SruException('', 4);
                 }
+            }
+        } elseif ($operation === 'scan') {
+            if (empty($param->scanClause)) {
+                throw new SruException('scanClause', 7);
+            }
+            if ((string) $param->responsePosition !== '' && !preg_match('/^[1-9][0-9]*$/', $param->responsePosition)) {
+                throw new SruException('responsePosition', 6);
+            }
+            if ((string) $param->maximumTerms !== '' && !preg_match('/^[1-9][0-9]*$/', $param->maximumTerms)) {
+                throw new SruException('maximumTerms', 6);
             }
         }
     }

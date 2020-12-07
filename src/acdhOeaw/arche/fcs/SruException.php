@@ -34,6 +34,7 @@ use DOMNode;
  * @author zozlak
  */
 class SruException extends FcsException {
+
     /**
      * List of all SRU diagnostic codes.
      * 
@@ -102,7 +103,7 @@ class SruException extends FcsException {
         68  => 'Not authorized to send record',
         69  => 'Not authorized to send record in this schema',
         70  => 'Record too large to send', // Maximum record size
-        71  => 'Unsupported recordXMLEscaping value',
+        71  => 'Unsupported recordXMLEscaping/recordPacking value',
         72  => 'XPath retrieval unsupported',
         73  => 'XPath expression contains unsupported feature', // Feature
         74  => 'Unable to evaluate XPath expression',
@@ -130,13 +131,16 @@ class SruException extends FcsException {
         235 => 'Database does not exist',
     ];
 
-    public function appendToXmlNode(DOMNode $node): void {
-        $d = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:diagnostic');
-        $uri = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:uri', 'info:srw/diagnostic/1/' . $this->getCode());
-        $details = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:details', $this->getMessage());
-        $message = $node->ownerDocument->createElementNS(SruResponse::DIAGNOSTICS_NMSP, 'diag:message', self::$exceptions[$this->getCode()]);
+    public function appendToXmlNode(DOMNode $node, string $namespace): void {
+        $d       = $node->ownerDocument->createElementNS($namespace, 'diag:diagnostic');
+        $uri     = $node->ownerDocument->createElementNS($namespace, 'diag:uri', 'info:srw/diagnostic/1/' . $this->getCode());
         $d->appendChild($uri);
-        $d->appendChild($details);
+        $details = $this->getMessage();
+        if (!empty($details)) {
+            $details = $node->ownerDocument->createElementNS($namespace, 'diag:details', $details);
+            $d->appendChild($details);
+        }
+        $message = $node->ownerDocument->createElementNS($namespace, 'diag:message', self::$exceptions[$this->getCode()]);
         $d->appendChild($message);
         $node->appendChild($d);
     }

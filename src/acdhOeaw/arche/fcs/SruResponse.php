@@ -37,25 +37,39 @@ use DOMNode;
  */
 class SruResponse {
 
-    const ZEEREX_NMSP      = 'http://explain.z3950.org/dtd/2.1/';
-    const DIAGNOSTICS_NMSP = 'http://www.loc.gov/zing/srw/diagnostic/';
-    const RECORD_SCHEMA    = 'http://explain.z3950.org/dtd/2.1/';
-    const SRU_MAX_VERSION  = '2.0';
-    const SRU_NMSP_1       = 'http://www.loc.gov/zing/srw/';
-    const SRU_NMSP_2       = 'http://docs.oasis-open.org/ns/search-ws/sruResponse';
+    const ZEEREX_NMSP        = 'http://explain.z3950.org/dtd/2.1/';
+    const DIAGNOSTICS_NMSP_1 = 'http://www.loc.gov/zing/srw/diagnostic/';
+    const DIAGNOSTICS_NMSP_2 = 'http://docs.oasis-open.org/ns/search-ws/diagnostic';
+    const RECORD_SCHEMA      = 'http://explain.z3950.org/dtd/2.1/';
+    const SRU_MAX_VERSION    = '2.0';
+    const SRU_NMSP_1         = 'http://www.loc.gov/zing/srw/';
+    const SRU_NMSP_2         = 'http://docs.oasis-open.org/ns/search-ws/sruResponse';
+    const SRU_NMSP_SCAN_2    = 'http://docs.oasis-open.org/ns/search-ws/scan';
 
     private $version;
     private $nmsp;
     private $doc;
     private $root;
+    private $recordRoot;
+    private $numberOfRecords;
 
     public function __construct(string $responseType, string $version) {
         $this->version = (float) $version;
         $this->nmsp    = $this->version >= 2 ? self::SRU_NMSP_2 : self::SRU_NMSP_1;
-        $this->doc     = new DOMDocument('1.0', 'utf-8');
-        $this->root    = $this->doc->createElementNS($this->nmsp, "sru:{$responseType}Response");
+        if ($this->version >= 2 && $responseType === 'scan') {
+            $this->nmsp = self::SRU_NMSP_SCAN_2;
+        }
+        $this->doc        = new DOMDocument('1.0', 'utf-8');
+        $this->root       = $this->doc->createElementNS($this->nmsp, "sru:{$responseType}Response");
         $this->doc->appendChild($this->root);
         $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:version', sprintf('%.1f', $this->version)));
+        $this->recordRoot = $this->root;
+
+        if ($responseType === 'searchRetrieve') {
+            //TODO sru:resourceCountPrecision only in SRU 2.0
+            $this->numberOfRecords = 0;
+            $this->recordRoot      = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:records'));
+        }
     }
 
     public function createElementNs(string $ns, string $el,
@@ -65,20 +79,20 @@ class SruResponse {
 
     public function addDiagnostics(SruException $e): void {
         $d = $this->root->appendChild($this->createElementNs($this->nmsp, 'sru:diagnostics'));
-        $e->appendToXmlNode($d);
+        $e->appendToXmlNode($d, $this->version >= 2 ? self::DIAGNOSTICS_NMSP_2 : self::DIAGNOSTICS_NMSP_1);
     }
 
     public function addRecord(?DOMNode $content, string $schema,
                               ?string $id = null, ?int $position = null): void {
-        $rec = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:record'));
+        $rec = $this->recordRoot->appendChild($this->doc->createElementNS($this->nmsp, 'sru:record'));
         if ($content === null) {
             return;
         }
         $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordSchema', $schema));
         if ($this->version >= 2) {
-            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordXMLEscaping', 'XML'));
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordXMLEscaping', 'xml'));
         } else {
-            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordPacking', 'XML'));
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordPacking', 'xml'));
         }
         if (!empty($id)) {
             $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordIdentifier', $id));
@@ -89,6 +103,8 @@ class SruResponse {
         $d = $this->doc->createElementNS($this->nmsp, 'sru:recordData');
         $d->appendChild($content);
         $rec->appendChild($d);
+
+        $this->numberOfRecords++;
     }
 
     public function addExtraResponseData(DOMNode $extra): void {
@@ -97,6 +113,12 @@ class SruResponse {
     }
 
     public function __toString(): string {
+        if ($this->root !== $this->recordRoot) {
+            $this->root->insertBefore($this->doc->createElementNS($this->nmsp, 'sru:numberOfRecords', $this->numberOfRecords), $this->root->firstChild->nextSibling);
+            if ($this->numberOfRecords === 0) {
+                $this->root->removeChild($this->recordRoot);
+            }
+        }
         return $this->doc->saveXML();
     }
 
