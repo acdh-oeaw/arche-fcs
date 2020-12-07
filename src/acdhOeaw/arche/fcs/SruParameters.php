@@ -70,7 +70,7 @@ class SruParameters {
         $this->stylesheet              = $src['Stylesheet'] ?? null;
         $this->recordPacking           = $src['recordPacking'] ?? ($this->version >= 2 ? 'packed' : 'xml');
         // searchRetrieve-specific
-        $this->startRecord             = $src['startRecord'] ?? '1'; // startPosition
+        $this->startRecord             = $src['startRecord'] ?? null; // startPosition
         $this->maximumRecords          = $src['maximumRecords'] ?? null; // maximumItems
         // scan-specific
         $this->scanClause              = $src['scanClause'] ?? null;

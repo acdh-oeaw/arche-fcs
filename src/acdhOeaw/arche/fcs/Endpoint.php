@@ -181,7 +181,6 @@ class Endpoint {
         $param->maximumRecords ??= $this->cfg->configInfo->default->maximumRecords;
         $this->checkParam($param, 'search');
         $param->maximumRecords = (int) $param->maximumRecords;
-        $param->startRecord    = (int) $param->startRecord;
         $resp                  = new SruResponse('searchRetrieve', $param->version);
 
         $pdo   = $this->getDbHandle();
@@ -200,8 +199,8 @@ class Endpoint {
         } catch (ParserException $e) {
             throw new SruException('', 10);
         }
-        $tsquery    = $cqlParser->asTsquery();
-        $hglghOpts  = sprintf(
+        $tsquery   = $cqlParser->asTsquery();
+        $hglghOpts = sprintf(
             'MaxWords=%d,MinWords=%d,ShortWord=%d,MaxFragments=%d,FragmentDelimiter=%s',
             $this->cfg->highlighting->maxWords,
             $this->cfg->highlighting->minWords,
@@ -209,29 +208,44 @@ class Endpoint {
             $this->cfg->highlighting->maxFragments,
             self::FRAGMENT_DELIMITER
         );
+
+        $query      = "
+            CREATE TEMPORARY TABLE matches AS (
+                SELECT *
+                FROM
+                    validres
+                    JOIN full_text_search fts USING (id)
+                WHERE
+                    property = ?
+                    AND to_tsquery('simple', ?) @@ segments
+            )
+        ";
+        $queryParam = [self::FTS_PROPERTY_BINARY, $tsquery];
+        $query      = $pdo->prepare($query);
+        $query->execute($queryParam);
+
+        $nn = $pdo->query("SELECT count(*) FROM matches")->fetchColumn();
+        if ($param->startRecord > 0 && $param->startRecord > $nn) {
+            throw new SruException('', 61);
+        }
+        $param->startRecord ??= 1;
+
         $query      = "
             SELECT 
-                id, pid, cmdipid, 
+                id, pid, cmdipid,
                 ts_headline('simple', raw, to_tsquery('simple', ?), ?) AS hits
-            FROM
-                validres
-                JOIN full_text_search fts USING (id)
-            WHERE
-                property = ?
-                AND to_tsquery('simple', ?) @@ segments
-            ORDER BY id
-            LIMIT ?
-            OFFSET ?
+            FROM matches
+            ORDER BY id LIMIT ? OFFSET ?
         ";
         $queryParam = [
-            $tsquery, $hglghOpts, 
-            self::FTS_PROPERTY_BINARY, $tsquery,
+            $tsquery, $hglghOpts,
             $param->maximumRecords + 1, $param->startRecord - 1
         ];
         $query      = $pdo->prepare($query);
         $query->execute($queryParam);
-        $n = $param->maximumRecords;
-        while ($n > 0 && ($res        = $query->fetchObject())) {
+
+        $n   = $param->maximumRecords;
+        while ($n > 0 && ($res = $query->fetchObject())) {
             $n--;
             $xmlRes = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
             $xmlRes->setAttribute('pid', $res->pid);
@@ -319,7 +333,7 @@ class Endpoint {
             if ($param->queryType !== 'cql' && $this->queryType !== 'searchTerms') {
                 throw new SruException('queryType', 6);
             }
-            if ($param->startRecord !== '' && !preg_match('/^[1-9][0-9]*$/', $param->startRecord)) {
+            if ((string) $param->startRecord !== '' && !preg_match('/^[1-9][0-9]*$/', $param->startRecord)) {
                 throw new SruException('startRecord', 6);
             }
             if ((string) $param->maximumRecords !== '' && !preg_match('/^[1-9][0-9]*$/', $param->maximumRecords)) {
