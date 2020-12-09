@@ -321,7 +321,7 @@ class Endpoint {
 
         $offset = 0;
         while ($p1     = strpos($hit, self::FTS_HIT_TAG_START, $offset)) {
-            $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset, $p1)));
+            $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset, $p1 - $offset)));
             $p2     = strpos($hit, self::FTS_HIT_TAG_END, $offset + 3);
             $xmlHit->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Hit', substr($hit, $p1 + 3, $p2 - $p1 - 3)));
             $offset = $p2 + 4;
