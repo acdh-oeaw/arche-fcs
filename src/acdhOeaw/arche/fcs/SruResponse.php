@@ -37,14 +37,20 @@ use DOMNode;
  */
 class SruResponse {
 
-    const ZEEREX_NMSP        = 'http://explain.z3950.org/dtd/2.1/';
-    const DIAGNOSTICS_NMSP_1 = 'http://www.loc.gov/zing/srw/diagnostic/';
-    const DIAGNOSTICS_NMSP_2 = 'http://docs.oasis-open.org/ns/search-ws/diagnostic';
-    const RECORD_SCHEMA      = 'http://explain.z3950.org/dtd/2.1/';
-    const SRU_MAX_VERSION    = '2.0';
-    const SRU_NMSP_1         = 'http://www.loc.gov/zing/srw/';
-    const SRU_NMSP_2         = 'http://docs.oasis-open.org/ns/search-ws/sruResponse';
-    const SRU_NMSP_SCAN_2    = 'http://docs.oasis-open.org/ns/search-ws/scan';
+    const ZEEREX_NMSP         = 'http://explain.z3950.org/dtd/2.1/';
+    const DIAGNOSTICS_NMSP_1  = 'http://www.loc.gov/zing/srw/diagnostic/';
+    const DIAGNOSTICS_NMSP_2  = 'http://docs.oasis-open.org/ns/search-ws/diagnostic';
+    const RECORD_SCHEMA       = 'http://explain.z3950.org/dtd/2.1/';
+    const SRU_MAX_VERSION     = '2.0';
+    const SRU_NMSP_1          = 'http://www.loc.gov/zing/srw/';
+    const SRU_NMSP_2          = 'http://docs.oasis-open.org/ns/search-ws/sruResponse';
+    const SRU_NMSP_SCAN_2     = 'http://docs.oasis-open.org/ns/search-ws/scan';
+    const COUNT_PREC_EXACT    = 'exact';
+    const COUNT_PREC_UNKNOWN  = 'unknown';
+    const COUNT_PREC_ESTIMATE = 'estimate';
+    const COUNT_PREC_MAXIMUM  = 'maximum';
+    const COUNT_PREC_MINIMUM  = 'minimum';
+    const COUNT_PREC_CURRENT  = 'current';
 
     private $version;
     private $nmsp;
@@ -52,6 +58,7 @@ class SruResponse {
     private $root;
     private $recordRoot;
     private $numberOfRecords;
+    private $resultCountPrecision = self::COUNT_PREC_UNKNOWN;
 
     public function __construct(string $responseType, string $version) {
         $this->version = (float) $version;
@@ -66,7 +73,6 @@ class SruResponse {
         $this->recordRoot = $this->root;
 
         if ($responseType === 'searchRetrieve') {
-            //TODO sru:resourceCountPrecision only in SRU 2.0
             $this->numberOfRecords = 0;
             $this->recordRoot      = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:records'));
         }
@@ -97,30 +103,40 @@ class SruResponse {
         if (!empty($id)) {
             $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordIdentifier', $id));
         }
-        if ($position > 0) {
-            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordPosition', $position));
-        }
         $d = $this->doc->createElementNS($this->nmsp, 'sru:recordData');
         $d->appendChild($content);
         $rec->appendChild($d);
+        if ($position > 0) {
+            $rec->appendChild($this->doc->createElementNS($this->nmsp, 'sru:recordPosition', $position));
+        }
 
-        $this->numberOfRecords++;
+        if ($this->numberOfRecords >= 0) {
+            $this->numberOfRecords++;
+        }
     }
 
     public function addNextRecordPosition(int $position): void {
         $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:nextRecordPosition', $position));
     }
-    
+
     public function addExtraResponseData(DOMNode $extra): void {
         $ex = $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:extraResponseData'));
         $ex->appendChild($extra);
     }
 
+    public function setNumberOfRecords(int $n,
+                                       string $countPrecision = self::COUNT_PREC_UNKNOWN): void {
+        $this->numberOfRecords      = -$n;
+        $this->resultCountPrecision = $countPrecision;
+    }
+
     public function __toString(): string {
         if ($this->root !== $this->recordRoot) {
-            $this->root->insertBefore($this->doc->createElementNS($this->nmsp, 'sru:numberOfRecords', $this->numberOfRecords), $this->root->firstChild->nextSibling);
+            $this->root->insertBefore($this->doc->createElementNS($this->nmsp, 'sru:numberOfRecords', abs($this->numberOfRecords)), $this->root->firstChild->nextSibling);
             if ($this->numberOfRecords === 0) {
                 $this->root->removeChild($this->recordRoot);
+            } elseif ($this->version >= 2) {
+                $this->root->appendChild($this->doc->createElementNS($this->nmsp, 'sru:resultCountPrecision', $this->resultCountPrecision));
             }
         }
         return $this->doc->saveXML();

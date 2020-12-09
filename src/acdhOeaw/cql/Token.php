@@ -51,6 +51,9 @@ class Token {
     public function __construct(string $value, int $type) {
         $this->value = $value;
         $this->type  = $type;
+        if ($this->isBoolean() || $this->isSortBy()) {
+            $this->value = strtolower($this->value);
+        }
     }
 
     public function getValue(): string {

@@ -50,7 +50,10 @@ class Endpoint {
     const POLICY_DATA_VIEW_DEFAULT = 'send-by-default';
     const POLICY_DATA_VIEW_REQUEST = 'need-to-request';
     const FTS_PROPERTY_BINARY      = 'BINARY';
-    const FRAGMENT_DELIMITER       = '@~$`';
+    const FTS_HIT_DELIMITER        = '@~$`';
+    const FTS_HIT_TAG_START        = '<@>';
+    const FTS_HIT_TAG_END          = '</@>';
+    const DB_TMP_TBL_NAME          = 'matches';
 
     /**
      *
@@ -121,7 +124,7 @@ class Endpoint {
 
     private function handleExplain(SruParameters $param): SruResponse {
         $resp    = new SruResponse('explain', $param->version);
-        $this->checkParam($param, 'explain');
+        $this->sanitizeParam($param, 'explain');
         $explain = $resp->createElementNs(SruResponse::ZEEREX_NMSP, 'zr:explain');
 
         $si = $explain->appendChild($resp->createElementNs(SruResponse::ZEEREX_NMSP, 'zr:serverInfo'));
@@ -178,12 +181,97 @@ class Endpoint {
     }
 
     private function handleSearch(SruParameters $param): SruResponse {
-        $param->maximumRecords ??= $this->cfg->configInfo->default->maximumRecords;
-        $this->checkParam($param, 'search');
-        $param->maximumRecords = (int) $param->maximumRecords;
-        $resp                  = new SruResponse('searchRetrieve', $param->version);
+        $pdo = $this->getDbHandle();
+        $this->sanitizeParam($param, 'search');
 
-        $pdo   = $this->getDbHandle();
+        $resp = new SruResponse('searchRetrieve', $param->version);
+
+        $tsquery = $this->getTsquery($param);
+        $this->findMatchingRepoResources($pdo, $param, $tsquery);
+
+        $query      = "
+            SELECT 
+                id, pid, cmdipid,
+                ts_headline('simple', raw, to_tsquery('simple', ?), ?) AS hits
+            FROM " . self::DB_TMP_TBL_NAME . "
+            ORDER BY id
+        ";
+        $queryParam = [$tsquery, $this->getHighlightingOpts()];
+        $query      = $pdo->prepare($query);
+        $query->execute($queryParam);
+        $record     = 0;
+        while ($record < $param->startRecord + $param->maximumRecords) {
+            $repoResource = $query->fetchObject();
+            if ($repoResource === false) {
+                if ($param->hasStartRecord && $record < $param->startRecord - 1) {
+                    throw new SruException('', 61);
+                }
+                break;
+            }
+
+            $hits = explode(self::FTS_HIT_DELIMITER, $repoResource->hits);
+            foreach ($hits as $hit) {
+                $record++;
+                if ($record < $param->startRecord) {
+                    continue;
+                } elseif ($record < $param->startRecord + $param->maximumRecords) {
+                    $repoResource->recordposition = $record;
+                    $this->appendSearchHitXml($hit, $resp, $repoResource, $param->xFcsDataviews);
+                }
+            }
+        }
+        while ($repoResource = $query->fetchObject()) {
+            $record += substr_count($repoResource->hits, self::FTS_HIT_DELIMITER) + 1;
+        }
+        $resp->setNumberOfRecords($record, SruResponse::COUNT_PREC_EXACT);
+        if ($record > $param->startRecord + $param->maximumRecords) {
+            $resp->addNextRecordPosition($param->startRecord + $param->maximumRecords);
+        }
+
+        return $resp;
+    }
+
+    private function handleScan(SruParameters $param): SruResponse {
+        $this->sanitizeParam($param, 'scan');
+        $resp = new SruResponse('scan', $param->version);
+
+        throw new SruException('', 4);
+    }
+
+    /**
+     * 
+     * @param \acdhOeaw\arche\fcs\SruParameters $param
+     * @return string
+     * @throws SruException
+     */
+    private function getTsquery(SruParameters $param): string {
+        try {
+            $cqlParser = new Parser();
+            $cqlParser->setAllowedBoolOp(['or']);
+            $cqlParser->parse($param->query);
+        } catch (ParserException $e) {
+            switch ($e->getCode()) {
+                case ParserException::UNSUPPORTED_BOOL_OP:
+                    throw new SruException($e->getMessage(), 37);
+                default:
+                    throw new SruException('', 10);
+            }
+        }
+        $tsquery = $cqlParser->asTsquery();
+        return $tsquery;
+    }
+
+    /**
+     * Creates the temporary table containing repository resources matching 
+     * the searchRetrieve query.
+     * 
+     * @param \acdhOeaw\arche\fcs\SruParameters $param
+     * @param string $tsquery
+     * @return void
+     */
+    private function findMatchingRepoResources(PDO $pdo, SruParameters $param,
+                                               string $tsquery): void {
+        // Find resources valid for the CLARIN FTS
         $query = $this->cfg->resourceQuery->query;
         $query = "
             CREATE TEMPORARY TABLE validres AS (
@@ -192,25 +280,20 @@ class Endpoint {
         ";
         $query = $pdo->prepare($query);
         $query->execute($this->cfg->resourceQuery->parameters);
-        $this->processFcsContext($param, $pdo);
 
-        try {
-            $cqlParser = new Parser($param->query);
-        } catch (ParserException $e) {
-            throw new SruException('', 10);
+        // If the x-fcs-context is provided, limit the search to given resources
+        if (count($param->xFcsContext) > 1 || !empty($param->xFcsContext[0])) {
+            $query = sprintf("DELETE FROM validres WHERE pid NOT IN (%s)", substr(str_repeat('?, ', count($param->xFcsContext)), 0, -2));
+            $query = $pdo->prepare($query);
+            $query->execute($param->xFcsContext);
+            if ($pdo->query("SELECT count(*) FROM validres")->fetchColumn() !== count($param->xFcsContext)) {
+                throw new SruException('Nonexistent resources requested with x-fcs-context', 1);
+            }
         }
-        $tsquery   = $cqlParser->asTsquery();
-        $hglghOpts = sprintf(
-            'MaxWords=%d,MinWords=%d,ShortWord=%d,MaxFragments=%d,FragmentDelimiter=%s',
-            $this->cfg->highlighting->maxWords,
-            $this->cfg->highlighting->minWords,
-            $this->cfg->highlighting->shortWord,
-            $this->cfg->highlighting->maxFragments,
-            self::FRAGMENT_DELIMITER
-        );
 
+        // Perform actual search
         $query      = "
-            CREATE TEMPORARY TABLE matches AS (
+            CREATE TEMPORARY TABLE " . self::DB_TMP_TBL_NAME . " AS (
                 SELECT *
                 FROM
                     validres
@@ -223,71 +306,49 @@ class Endpoint {
         $queryParam = [self::FTS_PROPERTY_BINARY, $tsquery];
         $query      = $pdo->prepare($query);
         $query->execute($queryParam);
-
-        $nn = $pdo->query("SELECT count(*) FROM matches")->fetchColumn();
-        if ($param->startRecord > 0 && $param->startRecord > $nn) {
-            throw new SruException('', 61);
-        }
-        $param->startRecord ??= 1;
-
-        $query      = "
-            SELECT 
-                id, pid, cmdipid,
-                ts_headline('simple', raw, to_tsquery('simple', ?), ?) AS hits
-            FROM matches
-            ORDER BY id LIMIT ? OFFSET ?
-        ";
-        $queryParam = [
-            $tsquery, $hglghOpts,
-            $param->maximumRecords + 1, $param->startRecord - 1
-        ];
-        $query      = $pdo->prepare($query);
-        $query->execute($queryParam);
-
-        $n   = $param->maximumRecords;
-        while ($n > 0 && ($res = $query->fetchObject())) {
-            $n--;
-            $xmlRes = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
-            $xmlRes->setAttribute('pid', $res->pid);
-
-            $hits = explode(self::FRAGMENT_DELIMITER, $res->hits);
-            foreach ($hits as $hit) {
-                $xmlResFrag     = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:ResourceFragment'));
-                $xmlHitDataView = $xmlResFrag->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
-                $xmlHitDataView->setAttribute('type', self::MIME_FCS_HITS);
-                $xmlHit         = $xmlHitDataView->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Result'));
-                $offset         = 0;
-                while ($p1             = strpos($hit, '<b>', $offset)) {
-                    $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset, $p1)));
-                    $p2     = strpos($hit, '</b>', $offset + 3);
-                    $xmlHit->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:hit', substr($hit, $p1 + 3, $p2 - $p1 - 3)));
-                    $offset = $p2 + 4;
-                }
-                $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset)));
-
-                if ($n >= $param->maximumRecords) {
-                    break;
-                }
-            }
-
-            foreach ($param->xFcsDataviews as $dv) {
-                $this->processHitDataView($dv, $res, $xmlRes);
-            }
-
-            $resp->addRecord($xmlRes, self::NMSP_FCS_RESOURCE);
-        }
-        if ($query->fetchObject() !== false) {
-            $resp->addNextRecordPosition($param->startRecord + $param->maximumRecords);
-        }
-
-        return $resp;
     }
 
-    private function handleScan(SruParameters $param): SruResponse {
-        $this->checkParam($param, 'scan');
-        $resp = new SruResponse('scan', $param->version);
+    private function appendSearchHitXml(string $hit, SruResponse $resp,
+                                        object $repoResource,
+                                        array $dataViews = []): void {
+        $xmlRes = $resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:Resource');
+        $xmlRes->setAttribute('pid', $repoResource->pid);
 
-        throw new SruException('', 4);
+        $xmlResFrag     = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:ResourceFragment'));
+        $xmlHitDataView = $xmlResFrag->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
+        $xmlHitDataView->setAttribute('type', self::MIME_FCS_HITS);
+        $xmlHit         = $xmlHitDataView->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Result'));
+
+        $offset = 0;
+        while ($p1     = strpos($hit, self::FTS_HIT_TAG_START, $offset)) {
+            $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset, $p1)));
+            $p2     = strpos($hit, self::FTS_HIT_TAG_END, $offset + 3);
+            $xmlHit->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Hit', substr($hit, $p1 + 3, $p2 - $p1 - 3)));
+            $offset = $p2 + 4;
+        }
+        $xmlHit->appendChild($xmlHit->ownerDocument->createTextNode(substr($hit, $offset)));
+
+        foreach ($dataViews as $dataView) {
+            switch ($dataView) {
+                case 'cmdi':
+                    $dataView = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
+                    $dataView->setAttribute('type', self::MIME_CMDI);
+                    $dataView->setAttribute('pid', $repoResource->cmdipid);
+                    $cmdiUrl  = sprintf($this->cfg->cmdiUrl, $repoResource->pid);
+                    if (!isset($this->cmdiCache[$cmdiUrl])) {
+                        $cmdi                      = new DOMDocument();
+                        $cmdi->loadXML(file_get_contents());
+                        $cmdi                      = $dataView->ownerDocument->importNode($cmdi->documentElement, true);
+                        $this->cmdiCache[$cmdiUrl] = $cmdi;
+                    } else {
+                        $cmdi = $this->cmdiCache[$cmdiUrl]->cloneNode(true);
+                    }
+                    $dataView->appendChild($cmdi);
+                    break;
+            }
+        }
+
+        $resp->addRecord($xmlRes, self::NMSP_FCS_RESOURCE, null, $repoResource->recordposition);
     }
 
     private function explainDescribeResources(DOMNode $container,
@@ -311,7 +372,13 @@ class Endpoint {
         }
     }
 
-    private function checkParam(SruParameters $param, string $operation): void {
+    private function sanitizeParam(SruParameters $param, string $operation): void {
+        // set default values
+        foreach ($this->cfg->configInfo->default as $key => $value) {
+            $param->$key ??= $value;
+        }
+
+        // check
         if (!in_array((float) $param->version, [1.1, 1.2, 2.0])) {
             throw new SruException(SruResponse::SRU_MAX_VERSION, 5);
         }
@@ -369,38 +436,10 @@ class Endpoint {
                 throw new SruException('maximumTerms', 6);
             }
         }
-    }
 
-    private function processFcsContext(SruParameters $param, PDO $pdo) {
-        if (count($param->xFcsContext) > 1 || !empty($param->xFcsContext[0])) {
-            $query = sprintf("DELETE FROM validres WHERE pid NOT IN (%s)", substr(str_repeat('?, ', count($param->xFcsContext)), 0, -2));
-            $query = $pdo->prepare($query);
-            $query->execute($param->xFcsContext);
-            if ($pdo->query("SELECT count(*) FROM validres")->fetchColumn() !== count($param->xFcsContext)) {
-                throw new SruException('Nonexistent resources requested with x-fcs-context', 1);
-            }
-        }
-    }
-
-    private function processHitDataView(string $dataView, object $res,
-                                        DOMNode $xmlParent): void {
-        switch ($dataView) {
-            case 'cmdi':
-                $dataView = $xmlParent->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
-                $dataView->setAttribute('type', self::MIME_CMDI);
-                $dataView->setAttribute('pid', $res->cmdipid);
-                $cmdiUrl  = sprintf($this->cfg->cmdiUrl, $res->pid);
-                if (!isset($this->cmdiCache[$cmdiUrl])) {
-                    $cmdi                      = new DOMDocument();
-                    $cmdi->loadXML(file_get_contents());
-                    $cmdi                      = $dataView->ownerDocument->importNode($cmdi->documentElement, true);
-                    $this->cmdiCache[$cmdiUrl] = $cmdi;
-                } else {
-                    $cmdi = $this->cmdiCache[$cmdiUrl]->cloneNode(true);
-                }
-                $dataView->appendChild($cmdi);
-                break;
-        }
+        // cast
+        $param->maximumRecords = (int) $param->maximumRecords;
+        $param->startRecord    = (int) $param->startRecord;
     }
 
     private function getDbHandle(): PDO {
@@ -408,6 +447,19 @@ class Endpoint {
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->beginTransaction();
         return $pdo;
+    }
+
+    private function getHighlightingOpts(): string {
+        return sprintf(
+            'MaxWords=%d,MinWords=%d,ShortWord=%d,MaxFragments=%d,FragmentDelimiter=%s,StartSel=%s,StopSel=%s',
+            $this->cfg->highlighting->maxWords,
+            $this->cfg->highlighting->minWords,
+            $this->cfg->highlighting->shortWord,
+            $this->cfg->highlighting->maxFragments,
+            self::FTS_HIT_DELIMITER,
+            self::FTS_HIT_TAG_START,
+            self::FTS_HIT_TAG_END
+        );
     }
 
 }

@@ -55,10 +55,11 @@ class SruParameters {
     public $xFcsAllowRewrite;
     public $xFcsEndpointDescription;
     public $xFcsContext;
-    public $xFcsDataViews;
+    public $xFcsDataviews;
     public $scanClause;
     public $responsePosition;
     public $maximumTerms;
+    public $hasStartRecord;
 
     public function __construct(array $src, string $defaultVersion) {
         $this->query                   = $src['query'] ?? null;
@@ -70,7 +71,7 @@ class SruParameters {
         $this->stylesheet              = $src['Stylesheet'] ?? null;
         $this->recordPacking           = $src['recordPacking'] ?? ($this->version >= 2 ? 'packed' : 'xml');
         // searchRetrieve-specific
-        $this->startRecord             = $src['startRecord'] ?? null; // startPosition
+        $this->startRecord             = $src['startRecord'] ?? '1'; // startPosition
         $this->maximumRecords          = $src['maximumRecords'] ?? null; // maximumItems
         // scan-specific
         $this->scanClause              = $src['scanClause'] ?? null;
@@ -91,6 +92,8 @@ class SruParameters {
         $this->xFcsEndpointDescription = $src['x-fcs-endpoint-description'] ?? false;
         $this->xFcsContext             = explode(',', $src['x-fcs-context'] ?? ''); // SRU error 1 if not exists
         $this->xFcsDataviews           = explode(',', $src['x-fcs-dataviews'] ?? ''); // SRU error 4 if not exists
+        // non-SRU parameters required for handling some SRU-behaviour
+        $this->hasStartRecord          = isset($src['startRecord']); // required for emiting SRU exception 61
         // default operation handling
         if ($this->operation === '') {
             if (!empty($this->query)) {

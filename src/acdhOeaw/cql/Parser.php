@@ -40,16 +40,60 @@ class Parser {
     const STATE_NOTERM = 1;
     const STATE_TERM   = 2;
     const TOKEN_REGEX  = '([()/<=>]|<=|>=|==)|([^"()/<=>\s]+)|"([\\\\]"|[^"])*"';
-
+    
     /**
      *
      * @var Term
      */
     private $queryTree;
 
-    public function __construct(string $query) {
+    private $allowedBoolOp = ['and', 'or', 'not', 'prox'];
+    
+    public function parse(string $query) {
         // start by splitting input into tokens being operators or strings
-        $tokens  = [];
+        $tokens  = $this->parseTokens($query);
+        if (count($tokens) === 0) {
+            throw new ParserException('Empty query');
+        }
+        try {
+            $this->queryTree = $this->parseSimple($tokens);
+        } catch (ParserException $e) {
+            $this->queryTree = $this->parseLogical($tokens);
+        }
+        $this->checkQueryTree($this->queryTree);
+    }
+
+    /**
+     * 
+     * @param string[] $allowed
+     * @return void
+     */
+    public function setAllowedBoolOp(array $allowed): void {
+        $this->allowedBoolOp = $allowed;
+    }
+    
+    
+    private function checkQueryTree(Term $term): void {
+        // recursion
+        if (is_object($term->termLeft)) {
+            $this->checkQueryTree($term->termLeft);
+        }
+        if (is_object($term->termRight)) {
+            $this->checkQueryTree($term->termRight);
+        }
+        // actual checks
+        if ($term->operator !== null && !in_array($term->operator, $this->allowedBoolOp)) {
+            throw new ParserException($term->operator, ParserException::UNSUPPORTED_BOOL_OP);
+        }
+    }
+    
+    /**
+     * 
+     * @param string $query
+     * @return Token[]
+     */
+    private function parseTokens(string $query): array {
+        $tokens = [];
         $regex   = "`^" . self::TOKEN_REGEX . "`";
         $matches = null;
         while (preg_match($regex, $query, $matches)) {
@@ -65,17 +109,9 @@ class Parser {
             $tokens[] = new Token($matches[0], $type);
             $query    = ltrim(substr($query, strlen($matches[0]) + $offset));
         }
-
-        if (count($tokens) === 0) {
-            throw new ParserException('Empty query');
-        }
-        try {
-            $this->queryTree = $this->parseSimple($tokens);
-        } catch (ParserException $e) {
-            $this->queryTree = $this->parseLogical($tokens);
-        }
+        return $tokens;
     }
-
+    
     /**
      * 
      * @param Token[] $tokens
@@ -126,7 +162,7 @@ class Parser {
         $term = $firstTerm = new Term();
         $term->pushTerm(array_shift($tokens)->getValue());
         foreach ($tokens as $i) {
-            $term->setOperator('and');
+            $term->setOperator('or');
             $newTerm = $term->pushTerm(new Term());
             $newTerm->pushTerm($i->getValue());
             $term = $newTerm;

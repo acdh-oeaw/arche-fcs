@@ -32,5 +32,5 @@ namespace acdhOeaw\cql;
  * @author zozlak
  */
 class ParserException extends \Exception {
-    //put your code here
+    const UNSUPPORTED_BOOL_OP = 2;
 }
