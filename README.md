@@ -2,7 +2,10 @@
 
 A CLARIN [Federated Content Search 2.0](https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf) endpoint for [ARCHE](https://acdh-oeaw.github.io/arche-docs/).
 
-Supports the basic search profile with AND, OR and NOT operators.
+## Limitations
+
+* The CLARIN FCS requires search to be performed within the sentence context which is impossible in ARCHE. Therefore boolean operators are limited only to OR which isn't affected by this requirement.
+* As there is only a *raw text* layer in ARCHE, both CLARIN FCS advanced search and specific OASIS-CQL indices in SRU search/CLARIN FCS basic search aren't supported.
 
 ## Installation
 
@@ -16,7 +19,8 @@ Supports the basic search profile with AND, OR and NOT operators.
 
 ## Reference documentation
 
-* [CLARIN FCS 2.0](https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf)
-* [SRU](http://www.loc.gov/standards/sru/)
+* [CLARIN FCS landing page](https://www.clarin.eu/content/federated-content-search-clarin-fcs)
+* [CLARIN FCS 2.0 specification](https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf)
+* [SRU langing page](http://www.loc.gov/standards/sru/)
     * [differences between SRU 1.2 and 2.0](http://www.loc.gov/standards/sru/differences.html)
 
