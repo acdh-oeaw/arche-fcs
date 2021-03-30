@@ -49,7 +49,6 @@ class Endpoint {
     const ID_DATA_VIEW_CMDI        = 'cmdi';
     const POLICY_DATA_VIEW_DEFAULT = 'send-by-default';
     const POLICY_DATA_VIEW_REQUEST = 'need-to-request';
-    const FTS_PROPERTY_BINARY      = 'BINARY';
     const FTS_HIT_DELIMITER        = '@~$`';
     const FTS_HIT_TAG_START        = '<@>';
     const FTS_HIT_TAG_END          = '</@>';
@@ -299,11 +298,11 @@ class Endpoint {
                     validres
                     JOIN full_text_search fts USING (id)
                 WHERE
-                    property = ?
+                    mid IS NULL
                     AND to_tsquery('simple', ?) @@ segments
             )
         ";
-        $queryParam = [self::FTS_PROPERTY_BINARY, $tsquery];
+        $queryParam = [$tsquery];
         $query      = $pdo->prepare($query);
         $query->execute($queryParam);
     }
