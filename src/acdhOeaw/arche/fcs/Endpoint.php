@@ -359,6 +359,7 @@ class Endpoint {
             $xmlRes = $container->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Resource'));
             $xmlRes->setAttribute('pid', $res->pid);
             foreach (json_decode($res->title) as $title) {
+                $title->value = str_replace('&', '&amp;', $title->value);
                 $xmlEl = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title->value));
                 $xmlEl->setAttribute('xml:lang', $title->lang);
             }
