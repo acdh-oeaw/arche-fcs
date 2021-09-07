@@ -33,35 +33,55 @@ highlighting:
     shortWord: 3
     maxFragments: 20
 resourceQuery:
+    # The query has to return id, pid, cmdipid, title, language and fragmentpid columns
+    # The query must return all FCS resources and their fragments (if fragments are in use)
+    # Fragment have to have a value in the fragmentpid column while resources have to have
+    # null in the fragmentpid column.
+    # Resources must provide the title column being a JSON like '[{"lang": "en", "value": "title in English}]'
+    # and may provide the language column being JSON array of languages applicable to the resource (e.g. "["en"]).
+    # Resource fragments may provide any values (also nulls) in title and language columns.
     query: |
-        SELECT 
-            m1.id, 
-            m1.value AS pid,
-            m5.value AS cmdipid,
-            jsonb_agg(DISTINCT jsonb_build_object('lang', m2.lang, 'value', m2.value)) AS title,
-            jsonb_agg(DISTINCT substring(i4.ids from '[a-z]+$')) AS language
+        WITH res AS (
+            SELECT 
+                m1.id, 
+                m1.value AS pid,
+                m5.value AS cmdipid,
+                jsonb_agg(DISTINCT jsonb_build_object('lang', m2.lang, 'value', m2.value)) AS title,
+                jsonb_agg(DISTINCT substring(i4.ids from '[a-z]+$')) AS language
+            FROM
+                metadata m1 
+                JOIN metadata m2 USING (id)
+                JOIN relations r3 ON m1.id = r3.id
+                JOIN identifiers i3 ON r3.target_id = i3.id
+                JOIN relations r4 ON m1.id = r4.id
+                JOIN identifiers i4 ON r4.target_id = i4.id
+                JOIN metadata m5 ON m1.id = m5.id
+            WHERE
+                m1.property = ?
+                AND m2.property = ?
+                AND r3.property = ?
+                AND i3.ids = ?
+                AND r4.property = ?
+                AND i4.ids LIKE ?
+                AND m5.property = ?
+            GROUP BY 1, 2, 3
+        )
+        SELECT id, pid, cmdipid, null::text AS fragmentpid, title, language
+        FROM res
+          UNION
+        SELECT m1.id, res.pid, res.cmdipid AS cmdipid, m1.value AS fragmentpid, res.title, res.language
         FROM
-            metadata m1 
-            JOIN metadata m2 USING (id)
-            JOIN relations r3 ON m1.id = r3.id
-            JOIN identifiers i3 ON r3.target_id = i3.id
-            JOIN relations r4 ON m1.id = r4.id
-            JOIN identifiers i4 ON r4.target_id = i4.id
-            JOIN metadata m5 ON m1.id = m5.id
-        WHERE
-            m1.property = ?
-            AND m2.property = ?
-            AND r3.property = ?
-            AND i3.ids = ?
-            AND r4.property = ?
-            AND i4.ids LIKE ?
-            AND m5.property = ?
-        GROUP BY 1, 2, 3
+            metadata m1
+            JOIN relations r USING (id)
+            JOIN res ON r.target_id = res.id AND r.property = ?
+        WHERE m1.property = ?
     parameters:
     - https://vocabs.acdh.oeaw.ac.at/schema#hasPid
     - https://vocabs.acdh.oeaw.ac.at/schema#hasTitle
     - https://vocabs.acdh.oeaw.ac.at/schema#hasOaiSet
-    - https://vocabs.acdh.oeaw.ac.at/archeoaisets/clarin-vlo
+    - https://vocabs.acdh.oeaw.ac.at/archeoaisets/clarin-fcs
     - https://vocabs.acdh.oeaw.ac.at/schema#hasLanguage
     - https://vocabs.acdh.oeaw.ac.at/iso6393/%
     - https://vocabs.acdh.oeaw.ac.at/schema#hasMetadataPid
+    - https://vocabs.acdh.oeaw.ac.at/schema#isPartOf
+    - https://vocabs.acdh.oeaw.ac.at/schema#hasPid

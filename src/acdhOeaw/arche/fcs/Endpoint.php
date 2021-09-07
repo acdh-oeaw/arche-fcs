@@ -190,7 +190,7 @@ class Endpoint {
 
         $query      = "
             SELECT 
-                id, pid, cmdipid,
+                id, pid, cmdipid, fragmentpid,
                 ts_headline('simple', raw, to_tsquery('simple', ?), ?) AS hits
             FROM " . self::DB_TMP_TBL_NAME . "
             ORDER BY id
@@ -273,9 +273,8 @@ class Endpoint {
         // Find resources valid for the CLARIN FTS
         $query = $this->cfg->resourceQuery->query;
         $query = "
-            CREATE TEMPORARY TABLE validres AS (
-                SELECT id, pid, cmdipid FROM ($query) t
-            )
+            CREATE TEMPORARY TABLE validres AS
+                SELECT id, pid, cmdipid, fragmentpid FROM ($query) t
         ";
         $query = $pdo->prepare($query);
         $query->execute($this->cfg->resourceQuery->parameters);
@@ -314,6 +313,9 @@ class Endpoint {
         $xmlRes->setAttribute('pid', $repoResource->pid);
 
         $xmlResFrag     = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:ResourceFragment'));
+        if (!empty($repoResource->fragmentPid)) {
+            $xmlResFrag->setAttribute('pid', $repoResource->fragmentPid);
+        }
         $xmlHitDataView = $xmlResFrag->appendChild($resp->createElementNs(self::NMSP_FCS_RESOURCE, 'fcs:DataView'));
         $xmlHitDataView->setAttribute('type', self::MIME_FCS_HITS);
         $xmlHit         = $xmlHitDataView->appendChild($resp->createElementNs(self::NMSP_FCS_HITS, 'hits:Result'));
@@ -353,14 +355,19 @@ class Endpoint {
     private function explainDescribeResources(DOMNode $container,
                                               SruResponse $resp): void {
         $pdo   = $this->getDbHandle();
-        $query = $pdo->prepare($this->cfg->resourceQuery->query);
+        $query = "
+            SELECT *
+            FROM (" . $this->cfg->resourceQuery->query . ") t
+            WHERE fragmentpid IS NULL
+        ";
+        $query = $pdo->prepare($query);
         $query->execute($this->cfg->resourceQuery->parameters);
         while ($res   = $query->fetchObject()) {
             $xmlRes = $container->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Resource'));
             $xmlRes->setAttribute('pid', $res->pid);
             foreach (json_decode($res->title) as $title) {
                 $title->value = str_replace('&', '&amp;', $title->value);
-                $xmlEl = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title->value));
+                $xmlEl        = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title->value));
                 $xmlEl->setAttribute('xml:lang', $title->lang);
             }
             $xmlLangs = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Languages'));
