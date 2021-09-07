@@ -20,7 +20,9 @@ A CLARIN [Federated Content Search 2.0](https://office.clarin.eu/v/CE-2017-1046-
 ## Reference documentation
 
 * [CLARIN FCS landing page](https://www.clarin.eu/content/federated-content-search-clarin-fcs)
+* [CLARIN FCS statistics page](https://contentsearch.clarin.eu/rest/statistics)
 * [CLARIN FCS 2.0 specification](https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf)
+* [CLARIN FCS validator](https://clarin.ids-mannheim.de/fcs-endpoint-tester/app/)
 * [SRU langing page](http://www.loc.gov/standards/sru/)
     * [differences between SRU 1.2 and 2.0](http://www.loc.gov/standards/sru/differences.html)
 
