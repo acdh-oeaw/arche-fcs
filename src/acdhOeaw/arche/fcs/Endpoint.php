@@ -159,7 +159,7 @@ class Endpoint {
 
         if ($param->xFcsEndpointDescription === 'true') {
             $ed   = $resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:EndpointDescription');
-            $ed->setAttribute('version', $param->version >= 2 ? '2' : '1');
+            $ed->setAttribute('version', '2');
             $cpbs = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Capabilities'));
             $cpbs->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Capability', self::CPBLT_BASIC_SEARCH));
             $sdvs = $ed->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:SupportedDataViews'));
