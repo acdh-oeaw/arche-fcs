@@ -19,6 +19,7 @@ A CLARIN [Federated Content Search 2.0](https://office.clarin.eu/v/CE-2017-1046-
 
 ## Reference documentation
 
+* [FCS resources list curated by the CLARIN](https://github.com/clarin-eric/awesome-fcs)
 * [CLARIN FCS landing page](https://www.clarin.eu/content/federated-content-search-clarin-fcs)
 * [CLARIN FCS statistics page](https://contentsearch.clarin.eu/rest/statistics)
 * [CLARIN FCS 2.0 specification](https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf)
