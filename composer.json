@@ -10,13 +10,12 @@
             "email": "mzoltak@oeaw.ac.at"
         }
     ],
-    "require": {
-    },
     "autoload": {
         "psr-4": {
             "acdhOeaw\\": "src/acdhOeaw"
         }
     },
     "require-dev": {
+        "phpstan/phpstan": "^1.10"
     }
 }
