@@ -25,7 +25,7 @@ configInfo:
         maximumRecords: 100
     setting: {}
     supports: {}
-dbConnStr: host=127.0.0.1 port=5432 user=fcs dbname=www-data password=***
+dbConnStr: "pgsql: host=127.0.0.1 port=5432 user=fcs dbname=www-data password=***"
 cmdiUrl: https://arche.acdh.oeaw.ac.at/oaipmh/?verb=GetRecordRaw&metadataPrefix=cmdi&identifier=%s
 highlighting:
     minWords: 5

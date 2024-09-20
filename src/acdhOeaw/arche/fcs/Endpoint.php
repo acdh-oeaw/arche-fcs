@@ -450,7 +450,7 @@ class Endpoint {
     }
 
     private function getDbHandle(): PDO {
-        $pdo = new PDO('pgsql: ' . $this->cfg->dbConnStr);
+        $pdo = new PDO($this->cfg->dbConnStr);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->beginTransaction();
         return $pdo;
