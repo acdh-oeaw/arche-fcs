@@ -365,10 +365,17 @@ class Endpoint {
         while ($res   = $query->fetchObject()) {
             $xmlRes = $container->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Resource'));
             $xmlRes->setAttribute('pid', $res->pid);
+            $enTitle = false;
             foreach (json_decode($res->title) as $title) {
                 $title->value = str_replace('&', '&amp;', $title->value);
                 $xmlEl        = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title->value));
                 $xmlEl->setAttribute('xml:lang', $title->lang);
+                $enTitle = $enTitle || $title->lang === 'en';
+            }
+            // specification requires an English title
+            if (!$enTitle) {
+                $xmlEl        = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Title', $title->value));
+                $xmlEl->setAttribute('xml:lang', 'en');
             }
             $xmlLangs = $xmlRes->appendChild($resp->createElementNs(self::NMSP_FCS_ENDPOINT_DESC, 'ed:Languages'));
             foreach (json_decode($res->language) as $lang) {
