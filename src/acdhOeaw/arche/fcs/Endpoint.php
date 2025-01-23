@@ -284,7 +284,7 @@ class Endpoint {
             $query = sprintf("DELETE FROM validres WHERE pid NOT IN (%s)", substr(str_repeat('?, ', count($param->xFcsContext)), 0, -2));
             $query = $pdo->prepare($query);
             $query->execute($param->xFcsContext);
-            if ($pdo->query("SELECT count(*) FROM validres")->fetchColumn() !== count($param->xFcsContext)) {
+            if ($pdo->query("SELECT count(DISTINCT pid) FROM validres")->fetchColumn() !== count($param->xFcsContext)) {
                 throw new SruException('Nonexistent resources requested with x-fcs-context', 1);
             }
         }
