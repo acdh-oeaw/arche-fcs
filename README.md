@@ -2,6 +2,15 @@
 
 A CLARIN [Federated Content Search 2.0](https://office.clarin.eu/v/CE-2017-1046-FCS-Specification.pdf) endpoint for [ARCHE](https://acdh-oeaw.github.io/arche-docs/).
 
+## Deprecation notice
+
+As of 2026-03-24 the https://arche.acdh.oeaw.ac.at/fcs/ deployment has been shut down.
+
+FCS resources are now served using the [noske-fcs](https://github.com/acdh-oeaw/noske-fcs) service which:
+
+* can handle resource which are not in the ARCHE;
+* supports advanced FCS search.
+
 ## Limitations
 
 * The CLARIN FCS requires search to be performed within the sentence context which is impossible in ARCHE. Therefore boolean operators are limited only to OR which isn't affected by this requirement.
